@@ -32,24 +32,45 @@ export default function ExpressPage() {
   const loadUserContextData = async () => {
     try {
       // Get user progress for context
-      const { data: progressData } = await insforgeClient
-        .from('user_progress')
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
+      try {
+        const { data: progressData, error: progressError } = await insforgeClient
+          .from('user_progress')
+          .select('*')
+          .eq('user_id', user.id)
+          .single();
+
+        if (progressError) {
+          console.warn('⚠️ Could not load user progress:', progressError.message);
+        } else if (progressData) {
+          setUserData(prev => ({
+            ...prev,
+            progress: progressData,
+          }));
+        }
+      } catch (progressErr) {
+        console.warn('⚠️ User progress fetch failed (non-critical):', progressErr.message);
+      }
 
       // Get latest test results for additional context
-      const { data: resultsData } = await insforgeClient
-        .from('test_results')
-        .select('score, risk_level, tests(name), created_at')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(5);
+      try {
+        const { data: resultsData, error: resultsError } = await insforgeClient
+          .from('test_results')
+          .select('score, risk_level, tests(name), created_at')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(5);
 
-      setUserData({
-        progress: progressData,
-        recentResults: resultsData,
-      });
+        if (resultsError) {
+          console.warn('⚠️ Could not load test results:', resultsError.message);
+        } else if (resultsData) {
+          setUserData(prev => ({
+            ...prev,
+            recentResults: resultsData,
+          }));
+        }
+      } catch (resultsErr) {
+        console.warn('⚠️ Test results fetch failed (non-critical):', resultsErr.message);
+      }
     } catch (err) {
       console.error('Error loading user context:', err);
     }
@@ -93,11 +114,8 @@ export default function ExpressPage() {
         context += `\nMost recent assessment (${latestResult.tests.name}): Score ${latestResult.score}, Risk Level: ${latestResult.risk_level}`;
       }
 
-      // Call AI with context
-      const GEMINI_API_KEY = "AIzaSyBqRMdcB30OCqo-gB4tOe1SLGNXM0LCCRg";
-      const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`;
-
-      const geminiPrompt = `System: You are Neurofied, a compassionate cognitive health advisor. Analyze the user's emotional and cognitive state based on their description and assessment history.
+      // Call AI using InsForge's model gateway
+      const systemPrompt = `You are Neurofied, a compassionate cognitive health advisor. Analyze the user's emotional and cognitive state based on their description and assessment history.
 
 Return ONLY a valid JSON object matching this structure EXACTLY:
 {
@@ -116,36 +134,37 @@ Return ONLY a valid JSON object matching this structure EXACTLY:
   "seekHelp": [
     "Red flag 1 when to seek professional help"
   ]
-}
+}`;
 
-User Context:
-${context}`;
+      const userPrompt = `User Context:\n${context}`;
 
-      const aiResponse = await fetch(GEMINI_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          generationConfig: {
-            responseMimeType: "application/json",
-          },
-          contents: [{
-            parts: [{
-              text: geminiPrompt
-            }]
-          }]
-        })
+      const completion = await insforgeClient.ai.chat.completions.create({
+        model: 'openai/gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: 0.7,
+        maxTokens: 1024
       });
 
-      const aiData = await aiResponse.json();
-      const analysisText = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!completion || !completion.choices || completion.choices.length === 0) {
+        throw new Error('No response from AI service');
+      }
+
+      const analysisText = completion.choices[0].message.content;
+
+      if (!analysisText) {
+        throw new Error('Empty response from AI service');
+      }
 
       let parsedData = null;
       try {
         parsedData = JSON.parse(analysisText);
       } catch (e) {
-        console.error("Failed to parse JSON", e);
+        console.error("Failed to parse JSON from AI response:", e);
+        console.error("Raw response:", analysisText);
+        throw new Error('AI returned invalid JSON format');
       }
 
       if (parsedData) {

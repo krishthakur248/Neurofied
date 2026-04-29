@@ -306,13 +306,15 @@ export default function PredictPage() {
 
   const loadUserCognitiveData = async () => {
     try {
-      const { data } = await insforgeClient
+      const { data, error } = await insforgeClient
         .from('user_progress')
         .select('average_score, latest_risk_level')
         .eq('user_id', user.id)
         .single();
 
-      if (data) {
+      if (error) {
+        console.warn('⚠️ Could not load user cognitive data:', error.message);
+      } else if (data) {
         setUserProgress(data);
         // Convert cognitive performance score to stress level (INVERSE relationship)
         // HIGH cognitive score (healthy brain) = LOW stress level
@@ -327,7 +329,7 @@ export default function PredictPage() {
         }));
       }
     } catch (err) {
-      console.error('Error loading user cognitive data:', err);
+      console.warn('⚠️ Error loading user cognitive data (non-critical):', err.message);
     }
   };
 

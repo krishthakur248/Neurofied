@@ -188,15 +188,21 @@ export default function TestPage() {
 
             console.log('📈 Updating user progress...');
 
-            const { data: existingProgress, error: progressError } = await insforgeClient
-              .from('user_progress')
-              .select('*')
-              .eq('user_id', user.id)
-              .single();
+            let existingProgress = null;
+            try {
+              const { data, error: progressError } = await insforgeClient
+                .from('user_progress')
+                .select('*')
+                .eq('user_id', user.id)
+                .single();
 
-            if (progressError && progressError.code !== 'PGRST116') {
-              console.error('❌ Error fetching user progress:', progressError);
-              throw progressError;
+              if (progressError && progressError.code !== 'PGRST116') {
+                console.warn('⚠️ Could not fetch existing progress:', progressError.message);
+              } else {
+                existingProgress = data;
+              }
+            } catch (progressErr) {
+              console.warn('⚠️ Progress fetch failed (will create new):', progressErr.message);
             }
 
             const progressData = {
@@ -210,26 +216,34 @@ export default function TestPage() {
             };
 
             if (existingProgress) {
-              const { error: updateError } = await insforgeClient
-                .from('user_progress')
-                .update(progressData)
-                .eq('user_id', user.id);
+              try {
+                const { error: updateError } = await insforgeClient
+                  .from('user_progress')
+                  .update(progressData)
+                  .eq('user_id', user.id);
 
-              if (updateError) {
-                console.error('❌ Error updating user progress:', updateError);
-                throw updateError;
+                if (updateError) {
+                  console.warn('⚠️ Could not update user progress:', updateError.message);
+                } else {
+                  console.log('✅ User progress updated');
+                }
+              } catch (updateErr) {
+                console.warn('⚠️ Progress update failed (non-critical):', updateErr.message);
               }
-              console.log('✅ User progress updated');
             } else {
-              const { error: insertError } = await insforgeClient
-                .from('user_progress')
-                .insert([progressData]);
+              try {
+                const { error: insertError } = await insforgeClient
+                  .from('user_progress')
+                  .insert([progressData]);
 
-              if (insertError) {
-                console.error('❌ Error inserting user progress:', insertError);
-                throw insertError;
+                if (insertError) {
+                  console.warn('⚠️ Could not insert user progress:', insertError.message);
+                } else {
+                  console.log('✅ User progress created');
+                }
+              } catch (insertErr) {
+                console.warn('⚠️ Progress insert failed (non-critical):', insertErr.message);
               }
-              console.log('✅ User progress created');
             }
 
             console.log('🎉 All results saved successfully!');

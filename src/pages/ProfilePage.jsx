@@ -32,12 +32,23 @@ export default function ProfilePage() {
     try {
       setLoading(true);
 
+      let progressData = null;
       // 1. Fetch user_progress for total tests completed
-      const { data: progressData } = await insforgeClient
-        .from('user_progress')
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
+      try {
+        const { data, error: progressError } = await insforgeClient
+          .from('user_progress')
+          .select('*')
+          .eq('user_id', user.id)
+          .single();
+
+        if (progressError) {
+          console.warn('⚠️ Could not load user progress:', progressError.message);
+        } else {
+          progressData = data;
+        }
+      } catch (progressErr) {
+        console.warn('⚠️ User progress fetch failed (non-critical):', progressErr.message);
+      }
 
       // 2. Fetch all test results with test info
       const { data: resultsData, error: resultsError } = await insforgeClient
